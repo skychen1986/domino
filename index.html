@@ -505,8 +505,12 @@ canvas.addEventListener('pointerup', e => {
     const d = createDomino(px, pz, curSize);
 
     if (dominoes.length >= 2) {
+      // 回补上一块牌的 facing，指向新放的这块
       const prev = dominoes[dominoes.length - 2];
       const lineDir = Math.atan2(pz - prev.baseZ, px - prev.baseX);
+      prev.facing = lineDir;
+      prev.group.rotation.y = Math.PI/2 - lineDir;
+      // 新牌暂时沿用同一方向（下一块牌放置时会再更新）
       d.facing = lineDir;
       d.group.rotation.y = Math.PI/2 - lineDir;
     } else {
