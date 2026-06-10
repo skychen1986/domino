@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>多米诺 · 解压</title>
+<script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#1a3a2a; touch-action:none; user-select:none; -webkit-user-select:none; position:fixed; }
+  #c { display:block; position:absolute; top:0; left:0; }
+  #hint { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); color:rgba(255,255,255,.25); font-size:17px; font-family:system-ui,-apple-system,sans-serif; z-index:5; pointer-events:none; transition:opacity .4s; text-align:center; letter-spacing:.5px; }
+  #counter { position:fixed; top:max(12px, env(safe-area-inset-top)); right:14px; color:rgba(255,255,255,.5); font-size:13px; font-family:'SF Mono',monospace; z-index:10; pointer-events:none; }
+  #btn-push { position:fixed; right:18px; bottom:max(120px, calc(env(safe-area-inset-bottom) + 100px)); width:66px; height:66px; border-radius:50%; border:none; background:linear-gradient(135deg,#ff3b5c,#ff2d55); color:#fff; font-size:17px; font-weight:700; z-index:20; cursor:pointer; box-shadow:0 6px 24px rgba(255,45,85,.45); transition:transform .12s; letter-spacing:1px; }
+  #btn-push:active { transform:scale(.9); }
+  #btn-undo { position:fixed; left:16px; bottom:max(120px, calc(env(safe-area-inset-bottom) + 100px)); width:46px; height:46px; border-radius:50%; border:1.5px solid rgba(255,255,255,.25); background:rgba(0,0,0,.3); color:rgba(255,255,255,.6); font-size:15px; z-index:20; cursor:pointer; backdrop-filter:blur(10px); }
+  #toolbar-wrap { position:fixed; bottom:max(10px, env(safe-area-inset-bottom)); left:0; right:0; z-index:10; pointer-events:none; }
+  #toolbar { display:flex; gap:8px; padding:8px 12px; justify-content:center; align-items:center; pointer-events:auto; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  #toolbar button { border:none; border-radius:18px; padding:9px 16px; font-size:14px; font-weight:600; cursor:pointer; transition:all .12s; font-family:system-ui,-apple-system,sans-serif; white-space:nowrap; backdrop-filter:blur(10px); }
+  #toolbar button:active { transform:scale(.94); }
+  .preset { background:rgba(255,255,255,.1); color:rgba(255,255,255,.7); }
+  .preset.active { background:#ff6b35; color:#fff; box-shadow:0 2px 10px rgba(255,107,53,.4); }
+  #btn-clear { background:rgba(255,255,255,.08); color:rgba(255,255,255,.5); }
+  #spacer { color:rgba(255,255,255,.2); font-size:12px; margin:0 2px; }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="hint">👆 手指滑动铺骨牌</div>
+<div id="counter">0 / 200</div>
+<button id="btn-undo" onclick="undo()">↩</button>
+<button id="btn-push" onclick="push()">推</button>
+<div id="toolbar-wrap">
+  <div id="toolbar">
+    <button class="preset active" onclick="setPreset(5,this)">5块</button>
+    <button class="preset" onclick="setPreset(10,this)">10块</button>
+    <button class="preset" onclick="setPreset(20,this)">20块</button>
+    <button class="preset" onclick="setPreset(0,this)">自由</button>
+    <span id="spacer">|</span>
+    <button id="btn-clear" onclick="resetAll()">清空</button>
+  </div>
+</div>
+
+<script>
+// ─── 全局引用 ───────────────────────────────
+const { Engine, World, Bodies, Body, Composite, Constraint, Events, Vector } = Matter;
+
+// ─── 物理引擎（关闭重力）───────────────────
+const engine = Engine.create({
+  gravity: { x: 0, y: 0 },
+  enableSleeping: false,
+});
+const world = engine.world;
+
+// ─── 画布 ───────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio, 2);
+  canvas.width = window.innerWidth * dpr;
+  canvas.height = window.innerHeight * dpr;
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+}
+resize();
+window.addEventListener('resize', resize);
+
+const W = () => window.innerWidth;
+const H = () => window.innerHeight;
+
+// ─── 音频 ───────────────────────────────────
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function tick(freq, dur, vol, type = 'sine') {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.3, t + dur);
+    gain.gain.setValueAtTime(Math.min(vol, 0.15), t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(t); osc.stop(t + dur);
+  } catch(e) {}
+}
+
+function sfxPlace()  { tick(900, 0.04, 0.05); }
+function sfxPush()   { tick(250, 0.15, 0.1, 'triangle'); }
+function sfxChain()  { tick(350 + Math.random() * 700, 0.03, 0.04); }
+
+// ─── 常量 ───────────────────────────────────
+const D_W = 6;   // 骨牌窄边
+const D_H = 26;  // 骨牌长边
+const MAX_N = 200;
+
+// ─── 状态 ───────────────────────────────────
+let allData = [];        // [{id, origAngle, fallen, body, pinConstraint}]
+let allBodies = [];      // Matter body refs
+let allConstraints = []; // pin constraints
+let pathPts = [];        // [{x,y}] 所有路径点
+let segMetas = [];       // [{startIdx, endIdx}] 段信息
+let dominoCount = 0;
+let mode = 'idle';       // idle | drawing | toppling
+let presetN = 5;
+
+// ─── 绘图状态 ───────────────────────────────
+let drawing = false;
+let drawPts = [];
+
+// ─── 工具函数 ───────────────────────────────
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const lerp  = (a, b, t) => a + (b - a) * t;
+
+function angDiff(a, b) {
+  let d = b - a;
+  while (d >  Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  return d;
+}
+
+// ─── 沿路径生成骨牌位置 ─────────────────────
+function genPositions(sIdx, eIdx, count) {
+  let totalLen = 0;
+  const lens = [];
+  for (let i = sIdx; i < eIdx; i++) {
+    const d = dist(pathPts[i], pathPts[i+1]);
+    lens.push(d);
+    totalLen += d;
+  }
+  if (totalLen < 8) return [];
+
+  const spacing = count > 0 ? totalLen / count : 22;
+  const n = count > 0 ? count : Math.max(1, Math.floor(totalLen / spacing));
+  if (n === 0) return [];
+
+  const out = [];
+  let segI = 0, segAcc = 0;
+  for (let i = 0; i < n; i++) {
+    const target = count > 0 ? (i + 0.5) * (totalLen / n) : i * spacing + spacing * 0.5;
+    while (segI < lens.length && segAcc + lens[segI] < target) {
+      segAcc += lens[segI];
+      segI++;
+    }
+    if (segI >= lens.length) break;
+
+    const loc = segI < lens.length && lens[segI] > 0 ? (target - segAcc) / lens[segI] : 0;
+    const pi = sIdx + segI;
+    if (pi + 1 >= pathPts.length) break;
+    const x  = lerp(pathPts[pi].x, pathPts[pi+1].x, loc);
+    const y  = lerp(pathPts[pi].y, pathPts[pi+1].y, loc);
+    const dx = pathPts[pi+1].x - pathPts[pi].x;
+    const dy = pathPts[pi+1].y - pathPts[pi].y;
+    out.push({ x, y, dir: Math.atan2(dy, dx) });
+  }
+  return out;
+}
+
+// ─── 放置骨牌 ───────────────────────────────
+function placeOne(x, y, angle, segIdx) {
+  if (dominoCount >= MAX_N) return null;
+
+  const body = Bodies.rectangle(x, y, D_W, D_H, {
+    angle,
+    friction: 0.2,
+    frictionAir: 0.01,
+    restitution: 0.005,
+    density: 0.002,
+    label: 'domino',
+  });
+
+  // 用 constraint 钉住中心，只允许旋转
+  const pin = Constraint.create({
+    pointA: { x, y },
+    bodyB: body,
+    length: 0,
+    stiffness: 0.9,
+    damping: 0.05,
+  });
+
+  Composite.add(world, [body, pin]);
+  allBodies.push(body);
+  allConstraints.push(pin);
+
+  const data = {
+    id: body.id,
+    origAngle: angle,
+    fallen: false,
+    body,
+    pin,
+    segIdx,
+  };
+  allData.push(data);
+  dominoCount++;
+  updateCounter();
+  return data;
+}
+
+function placeSegment(positions, segIdx) {
+  const out = [];
+  for (const p of positions) {
+    const d = placeOne(p.x, p.y, p.dir + Math.PI/2, segIdx);
+    if (d) out.push(d);
+  }
+  if (out.length > 0) sfxPlace();
+  return out;
+}
+
+// ─── 推倒 ───────────────────────────────────
+function push() {
+  if (mode === 'toppling' || allData.length === 0) return;
+  initAudio();
+  sfxPush();
+  mode = 'toppling';
+
+  // 找到第一个未倒的骨牌
+  const first = allData.find(d => !d.fallen);
+  if (!first) { mode = 'idle'; return; }
+
+  const body = first.body;
+  // 推倒方向：骨牌面朝方向 = origAngle + π/2（即转向路径前方）
+  const pushDir = first.origAngle + Math.PI/2;
+
+  // 移除约束让它能倒
+  if (first.pin) {
+    Composite.remove(world, first.pin);
+    first.pin = null;
+  }
+
+  // 施加角速度
+  Body.setAngularVelocity(body, 0.12);
+  // 在小端加力制造扭矩
+  const fx = Math.cos(pushDir) * 0.0002;
+  const fy = Math.sin(pushDir) * 0.0002;
+  const tipX = body.position.x + Math.cos(first.origAngle) * D_H/2;
+  const tipY = body.position.y + Math.sin(first.origAngle) * D_H/2;
+  Body.applyForce(body, { x: tipX, y: tipY }, { x: fx, y: fy });
+
+  // 监控连锁
+  let lastCnt = -1;
+  const timer = setInterval(() => {
+    // 检测每个骨牌是否倒下
+    let freshFalls = 0;
+    for (const d of allData) {
+      if (d.fallen) continue;
+      const ad = Math.abs(angDiff(d.body.angle, d.origAngle));
+      if (ad > 0.75) {
+        d.fallen = true;
+        freshFalls++;
+        sfxChain();
+        // 释放倒下骨牌的约束
+        if (d.pin) {
+          Composite.remove(world, d.pin);
+          d.pin = null;
+        }
+      }
+    }
+    const totalFallen = allData.filter(d => d.fallen).length;
+
+    if (totalFallen === allData.length || (freshFalls === 0 && totalFallen > 0 && totalFallen === lastCnt)) {
+      clearInterval(timer);
+      // 释放所有约束让已倒的骨牌自由
+      for (const d of allData) {
+        if (d.pin) { Composite.remove(world, d.pin); d.pin = null; }
+      }
+      setTimeout(() => { mode = 'idle'; updateCounter(); }, 200);
+    }
+    lastCnt = totalFallen;
+  }, 120);
+}
+
+// ─── 撤销 ───────────────────────────────────
+function undo() {
+  if (mode === 'toppling' || segMetas.length === 0) return;
+
+  const lastMeta = segMetas.pop();
+  const segIdx = segMetas.length;
+
+  // 移除最后一段路经点
+  pathPts.splice(lastMeta.startIdx + 1);
+
+  // 移除对应骨牌
+  const toRemove = [];
+  for (let i = allData.length - 1; i >= 0; i--) {
+    if (allData[i].segIdx === segIdx) toRemove.push(i);
+  }
+  for (const i of toRemove) {
+    const d = allData[i];
+    if (d.pin) Composite.remove(world, d.pin);
+    Composite.remove(world, d.body);
+    const bi = allBodies.indexOf(d.body);
+    if (bi >= 0) allBodies.splice(bi, 1);
+    const ci = allConstraints.indexOf(d.pin);
+    if (ci >= 0) allConstraints.splice(ci, 1);
+    dominoCount--;
+  }
+  allData = allData.filter((_, i) => !toRemove.includes(i));
+
+  updateCounter();
+  if (pathPts.length === 0) {
+    document.getElementById('hint').style.opacity = '1';
+  }
+}
+
+// ─── 清空 ───────────────────────────────────
+function resetAll() {
+  if (mode === 'toppling') return;
+  for (const c of allConstraints) Composite.remove(world, c);
+  for (const b of allBodies) Composite.remove(world, b);
+  allBodies = [];
+  allConstraints = [];
+  allData = [];
+  pathPts = [];
+  segMetas = [];
+  dominoCount = 0;
+  updateCounter();
+  document.getElementById('hint').style.opacity = '1';
+}
+
+// ─── 预设 ───────────────────────────────────
+function setPreset(n, btn) {
+  presetN = n;
+  document.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+}
+
+// ─── UI ─────────────────────────────────────
+function updateCounter() {
+  document.getElementById('counter').textContent = dominoCount + ' / ' + MAX_N;
+  if (dominoCount > 0) {
+    document.getElementById('hint').style.opacity = '0';
+  }
+}
+
+// ─── 触摸/鼠标 ──────────────────────────────
+function evPos(e) {
+  const t = e.touches ? e.touches[0] : e;
+  return { x: t.clientX, y: t.clientY };
+}
+
+function beginDraw(e) {
+  if (mode !== 'idle') return;
+  e.preventDefault();
+  initAudio();
+  let pos = evPos(e);
+  if (pathPts.length > 0) {
+    const last = pathPts[pathPts.length - 1];
+    if (dist(pos, last) < 30) pos = last;
+  }
+  drawing = true;
+  drawPts = [pos];
+}
+
+function moveDraw(e) {
+  if (!drawing || mode !== 'idle') return;
+  e.preventDefault();
+  drawPts.push(evPos(e));
+}
+
+function endDraw(e) {
+  if (!drawing || mode !== 'idle') return;
+  e.preventDefault();
+  drawing = false;
+  if (drawPts.length < 2) return;
+
+  // 简化
+  const simp = [drawPts[0]];
+  for (let i = 1; i < drawPts.length; i++) {
+    if (dist(drawPts[i], simp[simp.length-1]) > 4) simp.push(drawPts[i]);
+  }
+  if (simp.length < 2) return;
+
+  const isNew = pathPts.length === 0;
+  let sIdx;
+  if (isNew) {
+    pathPts.push(simp[0]);
+    sIdx = 0;
+  } else {
+    const last = pathPts[pathPts.length - 1];
+    if (dist(simp[0], last) < 8) {
+      sIdx = pathPts.length - 1;
+    } else {
+      simp.unshift(last);
+      sIdx = pathPts.length;
+    }
+  }
+  for (let i = 1; i < simp.length; i++) pathPts.push(simp[i]);
+  const eIdx = pathPts.length - 1;
+  const segI = segMetas.length;
+  segMetas.push({ startIdx: sIdx, endIdx: eIdx });
+
+  const positions = genPositions(sIdx, eIdx, presetN);
+  if (positions.length > 0) placeSegment(positions, segI);
+  drawPts = [];
+}
+
+canvas.addEventListener('touchstart', beginDraw, { passive: false });
+canvas.addEventListener('touchmove',  moveDraw,  { passive: false });
+canvas.addEventListener('touchend',   endDraw,   { passive: false });
+canvas.addEventListener('mousedown',  beginDraw);
+canvas.addEventListener('mousemove',  moveDraw);
+canvas.addEventListener('mouseup',    endDraw);
+
+// ─── 渲染 ───────────────────────────────────
+function render() {
+  const w = W(), h = H();
+  ctx.clearRect(0, 0, w, h);
+
+  // 毛毡背景
+  ctx.fillStyle = '#1e6b4e';
+  ctx.fillRect(0, 0, w, h);
+  // 颗粒
+  ctx.fillStyle = 'rgba(0,0,0,0.03)';
+  for (let i = 0; i < 120; i++) {
+    ctx.fillRect(Math.random()*w, Math.random()*h, 2.5, 2.5);
+  }
+
+  // 路径虚线
+  for (const m of segMetas) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 8]);
+    ctx.beginPath();
+    ctx.moveTo(pathPts[m.startIdx].x, pathPts[m.startIdx].y);
+    for (let i = m.startIdx + 1; i <= m.endIdx; i++) ctx.lineTo(pathPts[i].x, pathPts[i].y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // 实时画线预览
+  if (drawing && drawPts.length > 1) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(drawPts[0].x, drawPts[0].y);
+    for (let i = 1; i < drawPts.length; i++) ctx.lineTo(drawPts[i].x, drawPts[i].y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // 骨牌
+  for (const d of allData) {
+    const b = d.body;
+    ctx.save();
+    ctx.translate(b.position.x, b.position.y);
+    ctx.rotate(b.angle);
+
+    if (d.fallen) {
+      // 已倒：暗灰色
+      ctx.fillStyle = '#2d3a30';
+      ctx.fillRect(-D_H/2, -D_W/2, D_H, D_W);
+      ctx.strokeStyle = '#3a4840';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(-D_H/2, -D_W/2, D_H, D_W);
+    } else {
+      // 站立：象牙白
+      const grad = ctx.createLinearGradient(-D_W/2, 0, D_W/2, 0);
+      grad.addColorStop(0, '#e8e0d5');
+      grad.addColorStop(0.5, '#faf6ed');
+      grad.addColorStop(1, '#d8d0c5');
+      ctx.fillStyle = grad;
+      ctx.fillRect(-D_W/2, -D_H/2, D_W, D_H);
+      // 圆点
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath();
+      ctx.arc(0, -D_H/2 + 7, 2.2, 0, Math.PI*2);
+      ctx.fill();
+      // 边框
+      ctx.strokeStyle = 'rgba(180,170,155,.5)';
+      ctx.lineWidth = 0.4;
+      ctx.strokeRect(-D_W/2, -D_H/2, D_W, D_H);
+    }
+
+    ctx.restore();
+  }
+
+  requestAnimationFrame(render);
+}
+
+// ─── 物理循环 ───────────────────────────────
+function update() {
+  Engine.update(engine, 1000 / 60);
+  requestAnimationFrame(update);
+}
+
+render();
+update();
+</script>
+</body>
+</html>
