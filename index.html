@@ -210,17 +210,15 @@ function updatePhysics(dt) {
     d.angVel *= 0.999; // 轻微阻尼
     d.angle += d.angVel * dt;
 
-    // 更新3D旋转：绕底部旋转
-    // 底部位置 = (baseX, 0, baseZ), 旋转轴 = 垂直于面朝方向的水平轴
-    const rx = Math.sin(d.facing); // 旋转轴X
-    const rz = -Math.cos(d.facing); // 旋转轴Z
-
+    // 更新3D：底部固定，顶部绕底部旋转
     d.group.position.set(
-      d.baseX + Math.cos(d.facing) * (s.h/2) * (1 - Math.cos(d.angle)),
+      d.baseX + Math.cos(d.facing) * (s.h/2) * Math.sin(d.angle),
       s.h/2 * Math.cos(d.angle),
-      d.baseZ + Math.sin(d.facing) * (s.h/2) * (1 - Math.cos(d.angle))
+      d.baseZ + Math.sin(d.facing) * (s.h/2) * Math.sin(d.angle)
     );
-    // 绕底部旋转
+    // 绕底部轴旋转（轴垂直于facing方向）
+    const rx = Math.sin(d.facing);
+    const rz = -Math.cos(d.facing);
     d.group.quaternion.setFromAxisAngle(
       new THREE.Vector3(rx, 0, rz).normalize(),
       -d.angle
@@ -235,6 +233,13 @@ function updatePhysics(dt) {
         d.baseX + Math.cos(d.facing) * (s.h/2),
         s.d/2,
         d.baseZ + Math.sin(d.facing) * (s.h/2)
+      );
+      // 平躺在地上的旋转
+      const rx = Math.sin(d.facing);
+      const rz = -Math.cos(d.facing);
+      d.group.quaternion.setFromAxisAngle(
+        new THREE.Vector3(rx, 0, rz).normalize(),
+        -Math.PI/2
       );
     }
   }
@@ -251,10 +256,11 @@ function updatePhysics(dt) {
 
         const os = SIZES[other.size];
 
-        // 计算d的顶部位置
-        const topX = d.baseX + Math.cos(d.facing) * s.h * Math.cos(d.angle);
-        const topZ = d.baseZ + Math.sin(d.facing) * s.h * Math.cos(d.angle);
-        const topY = s.h * Math.sin(d.angle);
+        // 计算d的顶部位置（沿facing方向的弧线）
+        const topDisp = s.h * Math.sin(d.angle); // 顶部水平位移
+        const topX = d.baseX + Math.cos(d.facing) * topDisp;
+        const topZ = d.baseZ + Math.sin(d.facing) * topDisp;
+        const topY = s.h * Math.cos(d.angle); // 顶部高度（cos: 从H降到0）
 
         // 检查other是否在d的倒下方向上
         const dx = other.baseX - d.baseX;
@@ -264,17 +270,15 @@ function updatePhysics(dt) {
 
         // 只检查面朝方向前方的骨牌
         const facingDiff = Math.abs(angDiffWrap(d.facing, dirTo));
-        if (facingDiff > Math.PI/3) continue; // 不在前方60°锥内
+        if (facingDiff > Math.PI/3) continue;
 
-        // 距离检查：顶部能否碰到
-        const maxReach = s.h * Math.cos(d.angle) + os.w/2;
-        if (dist > maxReach * 1.1) continue;
+        // 距离检查：顶部能否碰到（topDisp + 半个骨牌宽度）
+        const maxReach = topDisp + os.w * 0.6;
+        if (dist > maxReach || dist < topDisp * 0.3) continue;
 
-        // 碰撞点高度
-        const collideHeight = s.h * Math.sin(d.angle);
-        // 需要撞到other身体的上半部分才有效（不能撞到底座）
-        if (collideHeight < os.h * 0.15) continue;
-        if (collideHeight > os.h * 1.1) continue;
+        // 碰撞点高度需在other身体范围内
+        if (topY < os.h * 0.05) continue;  // 太低（撞到底座）
+        if (topY > os.h * 1.05) continue; // 太高（越过顶部）
 
         // 碰撞！启动other倒下
         const impactSpeed = d.angVel * dist;
@@ -426,16 +430,15 @@ canvas.addEventListener('pointerup', e => {
     const pz = THREE.MathUtils.clamp(planeIntersect.z, -3.8, 3.8);
     const d = createDomino(px, pz, curSize);
 
-    // 自动面朝：如果有上一张，面朝上一张
+    // 自动面朝：面对上一张牌（视觉上垂直于排列方向）
     if (dominoes.length >= 2) {
       const prev = dominoes[dominoes.length - 2];
-      const facing = Math.atan2(pz - prev.baseZ, px - prev.baseX);
-      d.facing = facing;
-      d.group.rotation.y = facing;
+      const lineDir = Math.atan2(pz - prev.baseZ, px - prev.baseX);
+      d.facing = lineDir; // 倒下方向 = 排列方向
+      d.group.rotation.y = lineDir + Math.PI/2; // 视觉面朝 = 垂直于排列方向
     } else {
-      // 默认面朝+Z
       d.facing = 0;
-      d.group.rotation.y = 0;
+      d.group.rotation.y = Math.PI/2;
     }
     playPlaceSound();
     document.getElementById('hint').style.opacity = '0';
