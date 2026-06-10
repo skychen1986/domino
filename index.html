@@ -8,16 +8,17 @@
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { width:100%; height:100%; overflow:hidden; background:#111; touch-action:manipulation; user-select:none; -webkit-user-select:none; position:fixed; font-family:system-ui,-apple-system,sans-serif; }
-  #c { display:block; }
+  #c { display:block; position:absolute; top:0; left:0; z-index:1; }
   #ui-top { position:fixed; top:max(10px, env(safe-area-inset-top)); left:0; right:0; z-index:10; display:flex; justify-content:center; gap:6px; pointer-events:none; }
   #ui-top button { pointer-events:auto; border:none; border-radius:16px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer; background:rgba(255,255,255,.12); color:rgba(255,255,255,.8); backdrop-filter:blur(10px); transition:all .12s; }
   #ui-top button:active { transform:scale(.94); }
   #ui-top button.sel { background:#ff6b35; color:#fff; }
   #hint { position:fixed; top:45%; left:50%; transform:translate(-50%,-50%); color:rgba(255,255,255,.3); font-size:15px; z-index:5; pointer-events:none; text-align:center; line-height:1.7; transition:opacity .3s; }
   #counter { position:fixed; top:max(50px, calc(env(safe-area-inset-top)+36px)); right:10px; color:rgba(255,255,255,.4); font-size:12px; font-family:monospace; z-index:10; pointer-events:none; }
-  #btn-push { position:fixed; right:16px; bottom:max(100px, calc(env(safe-area-inset-bottom)+80px)); width:64px; height:64px; border-radius:50%; border:none; background:linear-gradient(135deg,#ff3b5c,#ff2d55); color:#fff; font-size:16px; font-weight:700; z-index:20; cursor:pointer; box-shadow:0 4px 20px rgba(255,45,85,.4); transition:transform .12s; }
-  #btn-push:active { transform:scale(.9); }
-  #btn-clear { position:fixed; left:16px; bottom:max(100px, calc(env(safe-area-inset-bottom)+80px)); width:44px; height:44px; border-radius:50%; border:1.5px solid rgba(255,255,255,.2); background:rgba(0,0,0,.3); color:rgba(255,255,255,.5); font-size:16px; z-index:20; cursor:pointer; }
+  #btn-push { position:fixed; left:50%; bottom:max(90px, calc(env(safe-area-inset-bottom)+70px)); transform:translateX(-50%); width:auto; height:48px; padding:0 32px; border-radius:24px; border:none; background:linear-gradient(135deg,#ff3b5c,#ff2d55); color:#fff; font-size:17px; font-weight:700; z-index:100; cursor:pointer; box-shadow:0 4px 20px rgba(255,45,85,.5); letter-spacing:1px; }
+  #btn-push:active { transform:translateX(-50%) scale(.93); }
+  #btn-clear { position:fixed; right:16px; bottom:max(90px, calc(env(safe-area-inset-bottom)+70px)); width:44px; height:48px; border-radius:22px; border:1.5px solid rgba(255,255,255,.2); background:rgba(0,0,0,.4); color:rgba(255,255,255,.6); font-size:16px; z-index:100; cursor:pointer; }
+  #btn-undo { position:fixed; left:16px; bottom:max(90px, calc(env(safe-area-inset-bottom)+70px)); width:44px; height:48px; border-radius:22px; border:1.5px solid rgba(255,255,255,.2); background:rgba(0,0,0,.4); color:rgba(255,255,255,.6); font-size:15px; z-index:100; cursor:pointer; }
   #msg { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); color:#fff; font-size:18px; font-weight:700; z-index:15; pointer-events:none; opacity:0; transition:opacity .3s; text-shadow:0 2px 10px rgba(0,0,0,.5); }
 </style>
 </head>
@@ -26,8 +27,9 @@
 <canvas id="c"></canvas>
 <div id="hint">👆 点击桌面放置多米诺骨牌<br><span style="font-size:12px;opacity:.7;">选尺寸 → 点桌面放置 → 选一张推</span></div>
 <div id="counter">0 块</div>
+<button id="btn-undo" onclick="undoLast()">↩</button>
+<button id="btn-push" onclick="doPush()">▶ 推倒</button>
 <button id="btn-clear" onclick="clearAll()">✕</button>
-<button id="btn-push" onclick="doPush()">推</button>
 <div id="msg"></div>
 <div id="ui-top">
   <button class="sel" onclick="setSize('s',this)">小</button>
@@ -105,9 +107,73 @@ gridHelper.position.y = 0.08;
 scene.add(gridHelper);
 
 // ─── 骨牌数据 ──────────────────────────────
-let dominoes = []; // {mesh, group, size, baseX, baseZ, facing, angle:0, angVel:0, state:'standing'|'falling'|'fallen', selected:false}
+let dominoes = [];
 let selectedIdx = -1;
-let falling = false; // 连锁反应进行中
+let falling = false;
+
+// ─── 幽灵预览 ───────────────────────────────
+let ghostGroup = null;
+let ghostRing = null;
+
+function createGhostMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.3,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.35,
+    depthWrite: false,
+  });
+}
+
+function updateGhost() {
+  // 移除旧预览
+  if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; }
+  if (ghostRing) { scene.remove(ghostRing); ghostRing = null; }
+
+  if (dominoes.length === 0 || falling) return;
+
+  const last = dominoes[dominoes.length - 1];
+  if (last.state !== 'standing') return;
+
+  const s = SIZES[last.size];
+  const optDist = s.h * 0.82; // 最佳间距
+
+  // 幽灵位置：上一张牌的前方
+  const gx = last.baseX + Math.cos(last.facing) * optDist;
+  const gz = last.baseZ + Math.sin(last.facing) * optDist;
+
+  // 限制在桌面内
+  const cx = THREE.MathUtils.clamp(gx, -2.8, 2.8);
+  const cz = THREE.MathUtils.clamp(gz, -3.8, 3.8);
+
+  // 创建幽灵骨牌
+  ghostGroup = new THREE.Group();
+  const geo = getGeo(s);
+  const mat = createGhostMaterial();
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = s.h / 2;
+  ghostGroup.add(mesh);
+
+  // 幽灵圆点
+  const dotMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, transparent: true, opacity: 0.4, depthWrite: false });
+  const dot = new THREE.Mesh(dotGeo, dotMat);
+  dot.position.y = s.h - 0.15;
+  dot.position.z = s.d / 2 + 0.005;
+  ghostGroup.add(dot);
+
+  ghostGroup.position.set(cx, 0, cz);
+  ghostGroup.rotation.y = last.facing + Math.PI/2;
+  scene.add(ghostGroup);
+
+  // 放置区圆环
+  const ringGeo = new THREE.RingGeometry(optDist * 0.5, optDist * 0.55, 48);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x44ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.3, depthWrite: false });
+  ghostRing = new THREE.Mesh(ringGeo, ringMat);
+  ghostRing.rotation.x = -Math.PI/2;
+  ghostRing.position.set(last.baseX, 0.085, last.baseZ);
+  scene.add(ghostRing);
+}
 
 // 骨牌几何体缓存
 const geoCache = {};
@@ -425,23 +491,45 @@ canvas.addEventListener('pointerup', e => {
   const planeIntersect = new THREE.Vector3();
   const ray = raycaster.ray;
   if (ray.intersectPlane(tablePlane, planeIntersect)) {
-    // 限制在桌面范围内
-    const px = THREE.MathUtils.clamp(planeIntersect.x, -2.8, 2.8);
-    const pz = THREE.MathUtils.clamp(planeIntersect.z, -3.8, 3.8);
+    let px = THREE.MathUtils.clamp(planeIntersect.x, -2.8, 2.8);
+    let pz = THREE.MathUtils.clamp(planeIntersect.z, -3.8, 3.8);
+
+    // 如果有上一张牌，限制在放置区内（距离+角度）
+    if (dominoes.length > 0) {
+      const last = dominoes[dominoes.length - 1];
+      const s = SIZES[last.size];
+      const optDist = s.h * 0.82;
+      const dx = px - last.baseX;
+      const dz = pz - last.baseZ;
+      const rawDist = Math.sqrt(dx*dx + dz*dz);
+      const rawAngle = Math.atan2(dz, dx);
+
+      // 距离约束
+      const clampedDist = THREE.MathUtils.clamp(rawDist, optDist * 0.3, optDist * 1.6);
+      // 角度约束：facing ±30°
+      const maxAngle = Math.PI / 6;
+      const clampedAngle = last.facing + THREE.MathUtils.clamp(rawAngle - last.facing, -maxAngle, maxAngle);
+
+      px = last.baseX + Math.cos(clampedAngle) * clampedDist;
+      pz = last.baseZ + Math.sin(clampedAngle) * clampedDist;
+      px = THREE.MathUtils.clamp(px, -2.8, 2.8);
+      pz = THREE.MathUtils.clamp(pz, -3.8, 3.8);
+    }
+
     const d = createDomino(px, pz, curSize);
 
-    // 自动面朝：面对上一张牌（视觉上垂直于排列方向）
     if (dominoes.length >= 2) {
       const prev = dominoes[dominoes.length - 2];
       const lineDir = Math.atan2(pz - prev.baseZ, px - prev.baseX);
-      d.facing = lineDir; // 倒下方向 = 排列方向
-      d.group.rotation.y = lineDir + Math.PI/2; // 视觉面朝 = 垂直于排列方向
+      d.facing = lineDir;
+      d.group.rotation.y = lineDir + Math.PI/2;
     } else {
       d.facing = 0;
       d.group.rotation.y = Math.PI/2;
     }
     playPlaceSound();
     document.getElementById('hint').style.opacity = '0';
+    updateGhost();
   }
 });
 
@@ -571,6 +659,7 @@ function setSize(key, btn) {
   curSize = key;
   document.querySelectorAll('#ui-top button.sel').forEach(b => b.classList.remove('sel'));
   if (btn) btn.classList.add('sel');
+  updateGhost();
 }
 
 function updateCounter() {
@@ -586,7 +675,18 @@ function clearAll() {
   selectedIdx = -1;
   if (ghostLine) { scene.remove(ghostLine); ghostLine = null; }
   updateCounter();
+  updateGhost();
   document.getElementById('hint').style.opacity = '1';
+}
+
+function undoLast() {
+  if (falling || dominoes.length === 0) return;
+  const d = dominoes.pop();
+  scene.remove(d.group);
+  if (selectedIdx >= dominoes.length) selectedIdx = -1;
+  updateCounter();
+  updateGhost();
+  if (dominoes.length === 0) document.getElementById('hint').style.opacity = '1';
 }
 
 // ─── 响应式 ─────────────────────────────────
