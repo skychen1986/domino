@@ -280,65 +280,64 @@ function updatePhysics(dt) {
   dt = Math.min(dt, 0.05);
 
   for (const d of dominoes) {
-    if (d.state !== 'falling') continue;
+    if (d.state === 'standing') continue;
 
     const s = SIZES[d.size];
-    const alpha = (3 * GRAVITY / (2 * s.h)) * Math.sin(Math.max(d.angle, 0.01));
-    d.angVel += alpha * dt;
-    d.angVel *= 0.998;
-    d.angle += d.angVel * dt;
 
-    // 检查是否碰到前方的牌（碰撞→靠在下一张上）
-    let hitOther = null;
-    let hitDist = Infinity;
-    for (const other of dominoes) {
-      if (other.state !== 'standing') continue;
-      if (other === d) continue;
+    if (d.state === 'falling') {
+      const alpha = (3 * GRAVITY / (2 * s.h)) * Math.sin(Math.max(d.angle, 0.01));
+      d.angVel += alpha * dt;
+      d.angVel *= 0.998;
+      d.angle += d.angVel * dt;
 
-      const dx = other.baseX - d.baseX;
-      const dz = other.baseZ - d.baseZ;
-      const dist = Math.sqrt(dx*dx + dz*dz);
-      const dirTo = Math.atan2(dz, dx);
+      // 检查是否碰到前方的牌（碰撞→靠在下一张上）
+      let hitOther = null;
+      let hitDist = Infinity;
+      for (const other of dominoes) {
+        if (other.state !== 'standing') continue;
+        if (other === d) continue;
 
-      const facingDiff = angDiffWrap(d.facing, dirTo);
-      if (facingDiff > Math.PI/4) continue;
+        const dx = other.baseX - d.baseX;
+        const dz = other.baseZ - d.baseZ;
+        const dist = Math.sqrt(dx*dx + dz*dz);
+        const dirTo = Math.atan2(dz, dx);
 
-      const topDisp = s.h * Math.sin(d.angle);
-      if (topDisp < dist * 0.5) continue; // 顶部还没够到
+        const facingDiff = angDiffWrap(d.facing, dirTo);
+        if (facingDiff > Math.PI/4) continue;
 
-      if (dist < topDisp + s.d * 0.5 && dist < hitDist) {
-        hitOther = other;
-        hitDist = dist;
+        const topDisp = s.h * Math.sin(d.angle);
+        if (topDisp < dist * 0.5) continue; // 顶部还没够到
+
+        if (dist < topDisp + s.d * 0.5 && dist < hitDist) {
+          hitOther = other;
+          hitDist = dist;
+        }
+      }
+
+      if (hitOther && d.angVel > 0.02) {
+        // 靠在下一张上：冻结当前角度
+        d.state = 'leaning';
+        d.angVel = 0;
+
+        // 启动下一张
+        hitOther.state = 'falling';
+        hitOther.angVel = 0.3 + Math.random() * 0.2;
+        hitOther.angle = 0.02;
+        hitOther.group.position.set(hitOther.baseX, 0, hitOther.baseZ);
+        playChainSound();
+      }
+
+      // 最后一张（后方无牌）：可以完全倒下
+      if (d.angle >= Math.PI/2) {
+        d.angle = Math.PI/2;
+        d.angVel = 0;
+        d.state = 'fallen';
       }
     }
 
-    if (hitOther && d.angVel > 0.02) {
-      // 靠在下一张上：冻结当前角度
-      const os = SIZES[hitOther.size];
-      d.state = 'leaning';
-      d.angVel = 0;
-
-      // 启动下一张
-      hitOther.state = 'falling';
-      hitOther.angVel = 0.3 + Math.random() * 0.2;
-      hitOther.angle = 0.02;
-      hitOther.group.position.set(hitOther.baseX, 0, hitOther.baseZ);
-      playChainSound();
-      continue;
-    }
-
-    // 最后一张（后方无牌）：可以完全倒下
-    if (d.angle >= Math.PI/2) {
-      d.angle = Math.PI/2;
-      d.angVel = 0;
-      d.state = 'fallen';
-    }
-
-    // 更新3D旋转：绕局部X轴旋转（Three.js YXZ顺序，Y旋转=π/2-facing已预设）
+    // 更新3D姿态：所有非standing骨牌都要更新
     d.group.rotation.x = d.angle;
-
     if (d.state === 'fallen') {
-      d.group.rotation.x = Math.PI / 2;
       d.group.position.y = s.d / 2;
     }
   }
