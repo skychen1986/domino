@@ -164,7 +164,7 @@ function updateGhost() {
   ghostGroup.add(dot);
 
   ghostGroup.position.set(cx, 0, cz);
-  ghostGroup.rotation.y = last.facing + Math.PI/2;
+  ghostGroup.rotation.y = Math.PI/2 - last.facing;
   scene.add(ghostGroup);
 
   // 放置区：绿色内环=最佳距离，红色外环=最大距离（骨牌高度=压倒极限）
@@ -334,29 +334,12 @@ function updatePhysics(dt) {
       d.state = 'fallen';
     }
 
-    // 更新3D位置
-    d.group.position.set(
-      d.baseX + Math.cos(d.facing) * (s.h/2) * Math.sin(d.angle),
-      s.h/2 * Math.cos(d.angle),
-      d.baseZ + Math.sin(d.facing) * (s.h/2) * Math.sin(d.angle)
-    );
-    const rx = Math.sin(d.facing);
-    const rz = -Math.cos(d.facing);
-    d.group.quaternion.setFromAxisAngle(
-      new THREE.Vector3(rx, 0, rz).normalize(),
-      -d.angle
-    );
+    // 更新3D旋转：绕局部X轴旋转（Three.js YXZ顺序，Y旋转=π/2-facing已预设）
+    d.group.rotation.x = d.angle;
 
     if (d.state === 'fallen') {
-      d.group.position.set(
-        d.baseX + Math.cos(d.facing) * (s.h/2),
-        s.d/2,
-        d.baseZ + Math.sin(d.facing) * (s.h/2)
-      );
-      d.group.quaternion.setFromAxisAngle(
-        new THREE.Vector3(rx, 0, rz).normalize(),
-        -Math.PI/2
-      );
+      d.group.rotation.x = Math.PI / 2;
+      d.group.position.y = s.d / 2;
     }
   }
 }
@@ -525,7 +508,7 @@ canvas.addEventListener('pointerup', e => {
       const prev = dominoes[dominoes.length - 2];
       const lineDir = Math.atan2(pz - prev.baseZ, px - prev.baseX);
       d.facing = lineDir;
-      d.group.rotation.y = lineDir + Math.PI/2;
+      d.group.rotation.y = Math.PI/2 - lineDir;
     } else {
       d.facing = 0;
       d.group.rotation.y = Math.PI/2;
