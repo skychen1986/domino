@@ -698,14 +698,22 @@ window.addEventListener('resize', () => {
 
 // ─── 主循环 ─────────────────────────────────
 let lastTime = performance.now();
-function loop(time) {
-  requestAnimationFrame(loop);
-  const dt = (time - lastTime) / 1000;
-  lastTime = time;
+
+function physicsStep() {
+  const now = performance.now();
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
   if (dt > 0 && dt < 0.2) updatePhysics(dt);
+}
+
+function renderLoop() {
+  requestAnimationFrame(renderLoop);
   renderer.render(scene, camera);
 }
-requestAnimationFrame(loop);
+
+// 物理用 setInterval（不受标签页后台限制）
+setInterval(physicsStep, 16);
+renderLoop();
 </script>
 </body>
 </html>
