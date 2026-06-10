@@ -3,499 +3,606 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>多米诺 · 解压</title>
-<script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
+<title>多米诺3D · 解压</title>
+<script src="https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.min.js"></script>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html, body { width:100%; height:100%; overflow:hidden; background:#1a3a2a; touch-action:none; user-select:none; -webkit-user-select:none; position:fixed; }
-  #c { display:block; position:absolute; top:0; left:0; }
-  #hint { position:fixed; top:40%; left:50%; transform:translate(-50%,-50%); color:rgba(255,255,255,.25); font-size:17px; font-family:system-ui,-apple-system,sans-serif; z-index:5; pointer-events:none; transition:opacity .4s; text-align:center; line-height:1.6; }
-  #counter { position:fixed; top:max(12px, env(safe-area-inset-top)); right:14px; color:rgba(255,255,255,.5); font-size:13px; font-family:'SF Mono',monospace; z-index:10; pointer-events:none; }
-  #btn-push { position:fixed; right:18px; bottom:max(120px, calc(env(safe-area-inset-bottom) + 100px)); width:66px; height:66px; border-radius:50%; border:none; background:linear-gradient(135deg,#ff3b5c,#ff2d55); color:#fff; font-size:17px; font-weight:700; z-index:20; cursor:pointer; box-shadow:0 6px 24px rgba(255,45,85,.45); transition:transform .12s; letter-spacing:1px; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#111; touch-action:manipulation; user-select:none; -webkit-user-select:none; position:fixed; font-family:system-ui,-apple-system,sans-serif; }
+  #c { display:block; }
+  #ui-top { position:fixed; top:max(10px, env(safe-area-inset-top)); left:0; right:0; z-index:10; display:flex; justify-content:center; gap:6px; pointer-events:none; }
+  #ui-top button { pointer-events:auto; border:none; border-radius:16px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer; background:rgba(255,255,255,.12); color:rgba(255,255,255,.8); backdrop-filter:blur(10px); transition:all .12s; }
+  #ui-top button:active { transform:scale(.94); }
+  #ui-top button.sel { background:#ff6b35; color:#fff; }
+  #hint { position:fixed; top:45%; left:50%; transform:translate(-50%,-50%); color:rgba(255,255,255,.3); font-size:15px; z-index:5; pointer-events:none; text-align:center; line-height:1.7; transition:opacity .3s; }
+  #counter { position:fixed; top:max(50px, calc(env(safe-area-inset-top)+36px)); right:10px; color:rgba(255,255,255,.4); font-size:12px; font-family:monospace; z-index:10; pointer-events:none; }
+  #btn-push { position:fixed; right:16px; bottom:max(100px, calc(env(safe-area-inset-bottom)+80px)); width:64px; height:64px; border-radius:50%; border:none; background:linear-gradient(135deg,#ff3b5c,#ff2d55); color:#fff; font-size:16px; font-weight:700; z-index:20; cursor:pointer; box-shadow:0 4px 20px rgba(255,45,85,.4); transition:transform .12s; }
   #btn-push:active { transform:scale(.9); }
-  #btn-undo { position:fixed; left:16px; bottom:max(120px, calc(env(safe-area-inset-bottom) + 100px)); width:46px; height:46px; border-radius:50%; border:1.5px solid rgba(255,255,255,.25); background:rgba(0,0,0,.3); color:rgba(255,255,255,.6); font-size:15px; z-index:20; cursor:pointer; backdrop-filter:blur(10px); }
-  #toolbar-wrap { position:fixed; bottom:max(10px, env(safe-area-inset-bottom)); left:0; right:0; z-index:10; pointer-events:none; }
-  #toolbar { display:flex; gap:8px; padding:8px 12px; justify-content:center; align-items:center; pointer-events:auto; overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  #toolbar button { border:none; border-radius:18px; padding:9px 16px; font-size:14px; font-weight:600; cursor:pointer; transition:all .12s; font-family:system-ui,-apple-system,sans-serif; white-space:nowrap; backdrop-filter:blur(10px); }
-  #toolbar button:active { transform:scale(.94); }
-  .preset { background:rgba(255,255,255,.1); color:rgba(255,255,255,.7); }
-  .preset.active { background:#ff6b35; color:#fff; box-shadow:0 2px 10px rgba(255,107,53,.4); }
-  #btn-clear { background:rgba(255,255,255,.08); color:rgba(255,255,255,.5); }
-  #btn-fx { background:rgba(255,255,255,.08); color:rgba(255,255,255,.5); }
-  #spacer { color:rgba(255,255,255,.2); font-size:12px; margin:0 2px; }
+  #btn-clear { position:fixed; left:16px; bottom:max(100px, calc(env(safe-area-inset-bottom)+80px)); width:44px; height:44px; border-radius:50%; border:1.5px solid rgba(255,255,255,.2); background:rgba(0,0,0,.3); color:rgba(255,255,255,.5); font-size:16px; z-index:20; cursor:pointer; }
+  #msg { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); color:#fff; font-size:18px; font-weight:700; z-index:15; pointer-events:none; opacity:0; transition:opacity .3s; text-shadow:0 2px 10px rgba(0,0,0,.5); }
 </style>
 </head>
 <body>
 
 <canvas id="c"></canvas>
-<div id="hint">👆 在绿色桌面上滑动铺设骨牌<br><span style="font-size:13px;opacity:.7;">铺完点右下角「推」</span></div>
-<div id="counter">0 / 200</div>
-<button id="btn-undo" onclick="undo()">↩</button>
-<button id="btn-push" onclick="push()">推</button>
-<div id="toolbar-wrap">
-  <div id="toolbar">
-    <button class="preset active" onclick="setPreset(5,this)">5块</button>
-    <button class="preset" onclick="setPreset(10,this)">10块</button>
-    <button class="preset" onclick="setPreset(20,this)">20块</button>
-    <button class="preset" onclick="setPreset(0,this)">自由</button>
-    <span id="spacer">|</span>
-    <button id="btn-clear" onclick="resetAll()">清空</button>
-    <button id="btn-fx" onclick="toggleFx()" style="font-size:13px;">🔊</button>
-  </div>
+<div id="hint">👆 点击桌面放置多米诺骨牌<br><span style="font-size:12px;opacity:.7;">选尺寸 → 点桌面放置 → 选一张推</span></div>
+<div id="counter">0 块</div>
+<button id="btn-clear" onclick="clearAll()">✕</button>
+<button id="btn-push" onclick="doPush()">推</button>
+<div id="msg"></div>
+<div id="ui-top">
+  <button class="sel" onclick="setSize('s',this)">小</button>
+  <button onclick="setSize('m',this)">中</button>
+  <button onclick="setSize('l',this)">大</button>
+  <button style="background:rgba(255,255,255,.06);" onclick="toggleGhost()">📏参考线</button>
 </div>
 
 <script>
-// ─── 全局 ───────────────────────────────────
-const { Engine, World, Bodies, Body, Composite, Constraint, Events, Vector } = Matter;
+// ─── 三种尺寸定义 ──────────────────────────
+const SIZES = {
+  s: { w:0.38, h:0.85, d:0.1, name:'小', color:0xf5f0e8, dotColor:0x1a1a1a },
+  m: { w:0.50, h:1.10, d:0.14, name:'中', color:0xfaf5ed, dotColor:0x1a1a1a },
+  l: { w:0.62, h:1.40, d:0.18, name:'大', color:0xfffaf2, dotColor:0x1a1a1a },
+};
+let curSize = 's';
+let showGhost = true;
 
-// ─── 重力引擎 ───────────────────────────────
-const engine = Engine.create({
-  gravity: { x: 0, y: 1.5 },
-  enableSleeping: false,
-});
-const world = engine.world;
-
-// ─── 画布 ───────────────────────────────────
+// ─── Three.js ──────────────────────────────
 const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 
-function resize() {
-  const dpr = Math.min(window.devicePixelRatio, 2);
-  canvas.width = window.innerWidth * dpr;
-  canvas.height = window.innerHeight * dpr;
-  canvas.style.width = window.innerWidth + 'px';
-  canvas.style.height = window.innerHeight + 'px';
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.scale(dpr, dpr);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+scene.fog = new THREE.Fog(0x1a1a2e, 8, 25);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.5, 50);
+camera.position.set(0, 4.5, 6.5);
+camera.lookAt(0, 0, 0);
+
+// 灯光
+const ambient = new THREE.AmbientLight(0xffeedd, 0.8);
+scene.add(ambient);
+const sun = new THREE.DirectionalLight(0xfff5e8, 3.5);
+sun.position.set(5, 10, 3);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 40;
+sun.shadow.camera.left = -8;
+sun.shadow.camera.right = 8;
+sun.shadow.camera.top = 8;
+sun.shadow.camera.bottom = -3;
+sun.shadow.bias = -0.0002;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xc8d0ff, 0.8);
+fill.position.set(-2, 3, -2);
+scene.add(fill);
+
+// 桌面
+const tableGeo = new THREE.BoxGeometry(6, 0.15, 8);
+const tableMat = new THREE.MeshStandardMaterial({ color:0x1b5c3a, roughness:0.85, metalness:0.05 });
+const table = new THREE.Mesh(tableGeo, tableMat);
+table.position.y = -0.075;
+table.receiveShadow = true;
+table.castShadow = true;
+scene.add(table);
+
+// 桌面装饰线
+const edgeGeo = new THREE.BoxGeometry(6.05, 0.02, 8.05);
+const edgeMat = new THREE.MeshStandardMaterial({ color:0x2a1a0a, roughness:0.6 });
+const edge = new THREE.Mesh(edgeGeo, edgeMat);
+edge.position.y = 0.005;
+scene.add(edge);
+
+// ─── 地面参考网格线 ────────────────────────
+const gridHelper = new THREE.PolarGridHelper(3.5, 40, 20, 64, 0x3a7a5a, 0x3a7a5a);
+gridHelper.position.y = 0.08;
+scene.add(gridHelper);
+
+// ─── 骨牌数据 ──────────────────────────────
+let dominoes = []; // {mesh, group, size, baseX, baseZ, facing, angle:0, angVel:0, state:'standing'|'falling'|'fallen', selected:false}
+let selectedIdx = -1;
+let falling = false; // 连锁反应进行中
+
+// 骨牌几何体缓存
+const geoCache = {};
+function getGeo(s) {
+  const k = s.w+','+s.h+','+s.d;
+  if (!geoCache[k]) geoCache[k] = new THREE.BoxGeometry(s.w, s.h, s.d);
+  return geoCache[k];
 }
-resize();
-window.addEventListener('resize', resize);
+const dotGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.02, 8);
 
-const W = () => window.innerWidth;
-const H = () => window.innerHeight;
-
-// ─── 地面（看不见但一直在，兜住倒下的骨牌）───
-let groundBody = null;
-function ensureGround() {
-  if (groundBody) Composite.remove(world, groundBody);
-  groundBody = Bodies.rectangle(W()/2, H() + 40, W() * 2, 80, {
-    isStatic: true,
-    friction: 0.6,
-    label: 'ground',
-  });
-  Composite.add(world, groundBody);
-}
-ensureGround();
-window.addEventListener('resize', ensureGround);
-
-// ─── 音频 ───────────────────────────────────
-let audioCtx = null;
-let soundOn = true;
-function initAudio() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-}
-function toggleFx() { soundOn = !soundOn; document.getElementById('btn-fx').textContent = soundOn ? '🔊' : '🔇'; }
-
-function tick(freq, dur, vol, type = 'sine') {
-  if (!audioCtx || !soundOn) return;
-  try {
-    const t = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, t);
-    osc.frequency.exponentialRampToValueAtTime(freq * 0.3, t + dur);
-    gain.gain.setValueAtTime(Math.min(vol, 0.12), t);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(gain); gain.connect(audioCtx.destination);
-    osc.start(t); osc.stop(t + dur);
-  } catch(e) {}
-}
-function sfxPlace()  { tick(900, 0.04, 0.05); }
-function sfxPush()   { tick(200, 0.18, 0.1, 'triangle'); }
-function sfxChain()  { tick(350 + Math.random() * 700, 0.03, 0.04); }
-function sfxDone()   { tick(120, 0.25, 0.06, 'triangle'); }
-
-// ─── 常量 ───────────────────────────────────
-const D_W = 6;
-const D_H = 28;
-const MAX_N = 200;
-
-// ─── 状态 ───────────────────────────────────
-let allData = [];
-let allBodies = [];
-let allConstraints = [];
-let pathPts = [];
-let segMetas = [];
-let dominoCount = 0;
-let mode = 'idle';
-let presetN = 5;
-
-// ─── 绘图状态 ───────────────────────────────
-let drawing = false;
-let drawPts = [];
-
-// ─── 工具 ───────────────────────────────────
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-const lerp  = (a, b, t) => a + (b - a) * t;
-function angDiff(a, b) { let d = b - a; while (d > Math.PI) d -= 2*Math.PI; while (d < -Math.PI) d += 2*Math.PI; return d; }
-
-// ─── 生成骨牌位置 ───────────────────────────
-function genPositions(sIdx, eIdx, count) {
-  let totalLen = 0;
-  const lens = [];
-  for (let i = sIdx; i < eIdx; i++) {
-    const d = dist(pathPts[i], pathPts[i+1]);
-    lens.push(d);
-    totalLen += d;
-  }
-  if (totalLen < 8) return [];
-
-  const spacing = count > 0 ? totalLen / count : 22;
-  const n = count > 0 ? count : Math.max(1, Math.floor(totalLen / spacing));
-  if (n === 0) return [];
-
-  const out = [];
-  let segI = 0, segAcc = 0;
-  for (let i = 0; i < n; i++) {
-    const target = count > 0 ? (i + 0.5) * (totalLen / n) : i * spacing + spacing*0.5;
-    while (segI < lens.length && segAcc + lens[segI] < target) { segAcc += lens[segI]; segI++; }
-    if (segI >= lens.length) break;
-    const loc = segI < lens.length && lens[segI] > 0 ? (target - segAcc) / lens[segI] : 0;
-    const pi = sIdx + segI;
-    if (pi + 1 >= pathPts.length) break;
-    const x  = lerp(pathPts[pi].x, pathPts[pi+1].x, loc);
-    const y  = lerp(pathPts[pi].y, pathPts[pi+1].y, loc);
-    const dx = pathPts[pi+1].x - pathPts[pi].x;
-    const dy = pathPts[pi+1].y - pathPts[pi].y;
-    out.push({ x, y, dir: Math.atan2(dy, dx) });
-  }
-  return out;
+function createDominoMat(s) {
+  return new THREE.MeshStandardMaterial({ color:s.color, roughness:0.25, metalness:0.02 });
 }
 
-// ─── 放置骨牌（底部钉住，顶部可转）─────────
-function placeOne(x, y, angle, segIdx) {
-  if (dominoCount >= MAX_N) return null;
+function createDomino(x, z, sizeKey) {
+  const s = SIZES[sizeKey];
+  const group = new THREE.Group();
 
-  const body = Bodies.rectangle(x, y, D_W, D_H, {
-    angle,
-    friction: 0.5,
-    frictionAir: 0.02,
-    restitution: 0.005,
-    density: 0.003,
-    label: 'domino',
-  });
+  // 主体
+  const geo = getGeo(s);
+  const mat = createDominoMat(s);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = s.h / 2;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
 
-  // 钉住底部：骨牌 angle 朝向 = 路径垂直方向
-  // "底部" 是身体在面朝反方向的那一端
-  // angle + π 方向 = 从中心指向底部
-  const bx = x + Math.cos(angle + Math.PI) * (D_H/2);
-  const by = y + Math.sin(angle + Math.PI) * (D_H/2);
+  // 圆点
+  const dotMat = new THREE.MeshStandardMaterial({ color:s.dotColor, roughness:0.5 });
+  const dot = new THREE.Mesh(dotGeo, dotMat);
+  dot.position.y = s.h - 0.15;
+  dot.position.z = s.d / 2 + 0.005;
+  group.add(dot);
 
-  const pin = Constraint.create({
-    pointA: { x: bx, y: by },
-    bodyB: body,
-    pointB: { x: 0, y: D_H/2 }, // body 坐标系中的底端
-    length: 0,
-    stiffness: 0.95,
-    damping: 0.02,
-  });
+  // 第二个圆点（下方）
+  const dot2 = new THREE.Mesh(dotGeo, dotMat);
+  dot2.position.y = s.h - 0.35;
+  dot2.position.z = s.d / 2 + 0.005;
+  group.add(dot2);
 
-  Composite.add(world, [body, pin]);
-  allBodies.push(body);
-  allConstraints.push(pin);
+  group.position.set(x, 0, z);
+  scene.add(group);
 
   const data = {
-    id: body.id,
-    x, y,
-    origAngle: angle,
-    baseX: bx,
-    baseY: by,
-    fallen: false,
-    body,
-    pin,
-    segIdx,
+    mesh, group, size: sizeKey,
+    baseX: x, baseZ: z,
+    facing: 0, // 面朝方向角 (弧度, 0=+Z方向)
+    angle: 0,  // 倾斜角 (0=直立, PI/2=完全倒下)
+    angVel: 0,
+    state: 'standing',
+    selected: false,
   };
-  allData.push(data);
-  dominoCount++;
+  dominoes.push(data);
   updateCounter();
   return data;
 }
 
-function placeSegment(positions, segIdx) {
-  const out = [];
-  for (const p of positions) {
-    const d = placeOne(p.x, p.y, p.dir + Math.PI/2, segIdx);
-    if (d) out.push(d);
+// ─── 选择要推的牌 ──────────────────────────
+function selectDomino(idx) {
+  if (falling) return;
+  if (selectedIdx >= 0 && selectedIdx < dominoes.length) {
+    dominoes[selectedIdx].selected = false;
+    updateDominoVisual(selectedIdx);
   }
-  if (out.length > 0) sfxPlace();
-  return out;
+  if (idx === selectedIdx) {
+    selectedIdx = -1;
+  } else {
+    selectedIdx = idx;
+    dominoes[idx].selected = true;
+    updateDominoVisual(idx);
+  }
 }
 
-// ─── 推倒 ───────────────────────────────────
-function push() {
-  if (mode === 'toppling' || allData.length === 0) return;
+function updateDominoVisual(idx) {
+  const d = dominoes[idx];
+  const s = SIZES[d.size];
+  const mat = d.mesh.material;
+  if (d.selected) {
+    mat.emissive = new THREE.Color(0xff6b35);
+    mat.emissiveIntensity = 0.6;
+  } else {
+    mat.emissive = new THREE.Color(0x000000);
+    mat.emissiveIntensity = 0;
+  }
+}
+
+// ─── 物理 ──────────────────────────────────
+const GRAVITY = 9.8;
+
+function updatePhysics(dt) {
+  dt = Math.min(dt, 0.05); // cap
+
+  for (const d of dominoes) {
+    if (d.state !== 'falling') continue;
+
+    const s = SIZES[d.size];
+    // 角加速度 = 重力分量 (简化物理摆模型)
+    const alpha = (3 * GRAVITY / (2 * s.h)) * Math.sin(d.angle);
+    d.angVel += alpha * dt;
+    d.angVel *= 0.999; // 轻微阻尼
+    d.angle += d.angVel * dt;
+
+    // 更新3D旋转：绕底部旋转
+    // 底部位置 = (baseX, 0, baseZ), 旋转轴 = 垂直于面朝方向的水平轴
+    const rx = Math.sin(d.facing); // 旋转轴X
+    const rz = -Math.cos(d.facing); // 旋转轴Z
+
+    d.group.position.set(
+      d.baseX + Math.cos(d.facing) * (s.h/2) * (1 - Math.cos(d.angle)),
+      s.h/2 * Math.cos(d.angle),
+      d.baseZ + Math.sin(d.facing) * (s.h/2) * (1 - Math.cos(d.angle))
+    );
+    // 绕底部旋转
+    d.group.quaternion.setFromAxisAngle(
+      new THREE.Vector3(rx, 0, rz).normalize(),
+      -d.angle
+    );
+
+    // 倒下完成
+    if (d.angle >= Math.PI / 2) {
+      d.angle = Math.PI / 2;
+      d.angVel = 0;
+      d.state = 'fallen';
+      d.group.position.set(
+        d.baseX + Math.cos(d.facing) * (s.h/2),
+        s.d/2,
+        d.baseZ + Math.sin(d.facing) * (s.h/2)
+      );
+    }
+  }
+
+  // 碰撞检测：检查每个正在倒下的骨牌是否碰到相邻站立的骨牌
+  if (falling) {
+    for (const d of dominoes) {
+      if (d.state !== 'falling') continue;
+      const s = SIZES[d.size];
+
+      for (const other of dominoes) {
+        if (other.state !== 'standing') continue;
+        if (other === d) continue;
+
+        const os = SIZES[other.size];
+
+        // 计算d的顶部位置
+        const topX = d.baseX + Math.cos(d.facing) * s.h * Math.cos(d.angle);
+        const topZ = d.baseZ + Math.sin(d.facing) * s.h * Math.cos(d.angle);
+        const topY = s.h * Math.sin(d.angle);
+
+        // 检查other是否在d的倒下方向上
+        const dx = other.baseX - d.baseX;
+        const dz = other.baseZ - d.baseZ;
+        const dist = Math.sqrt(dx*dx + dz*dz);
+        const dirTo = Math.atan2(dz, dx);
+
+        // 只检查面朝方向前方的骨牌
+        const facingDiff = Math.abs(angDiffWrap(d.facing, dirTo));
+        if (facingDiff > Math.PI/3) continue; // 不在前方60°锥内
+
+        // 距离检查：顶部能否碰到
+        const maxReach = s.h * Math.cos(d.angle) + os.w/2;
+        if (dist > maxReach * 1.1) continue;
+
+        // 碰撞点高度
+        const collideHeight = s.h * Math.sin(d.angle);
+        // 需要撞到other身体的上半部分才有效（不能撞到底座）
+        if (collideHeight < os.h * 0.15) continue;
+        if (collideHeight > os.h * 1.1) continue;
+
+        // 碰撞！启动other倒下
+        const impactSpeed = d.angVel * dist;
+        other.state = 'falling';
+        other.angVel = impactSpeed * 0.7 * (s.h / os.h); // 能量传递
+        other.angle = 0.01;
+        other.group.position.set(other.baseX, 0, other.baseZ);
+        playChainSound();
+
+        // 只撞一个最近的
+        break;
+      }
+    }
+  }
+}
+
+function angDiffWrap(a, b) {
+  let d = b - a;
+  while (d > Math.PI) d -= 2*Math.PI;
+  while (d < -Math.PI) d += 2*Math.PI;
+  return Math.abs(d);
+}
+
+// ─── 推倒 ──────────────────────────────────
+function doPush() {
+  if (falling) return;
+  if (selectedIdx < 0) {
+    showMsg('先点击一张牌选中它');
+    return;
+  }
+  const d = dominoes[selectedIdx];
+  if (d.state !== 'standing') return;
+
   initAudio();
-  sfxPush();
-  mode = 'toppling';
+  playPushSound();
+  falling = true;
+  d.state = 'falling';
+  d.angVel = 0.5;
+  d.angle = 0.01;
+  if (d.selected) {
+    d.selected = false;
+    updateDominoVisual(selectedIdx);
+  }
+  selectedIdx = -1;
 
-  const first = allData.find(d => !d.fallen);
-  if (!first) { mode = 'idle'; return; }
+  // 监控连锁结束
+  checkDone();
+}
 
-  const body = first.body;
-
-  // 解除约束让它自由倒下
-  if (first.pin) { Composite.remove(world, first.pin); first.pin = null; }
-
-  // 推倒方向 = 向路径前方（angle + π/2 = 面朝方向）
-  const pushDir = first.origAngle + Math.PI/2;
-
-  // 在顶部施加冲力 + 重力会完成剩下的事
-  const tipX = body.position.x - Math.cos(first.origAngle + Math.PI) * (D_H/2);
-  const tipY = body.position.y - Math.sin(first.origAngle + Math.PI) * (D_H/2);
-  Body.applyForce(body, { x: tipX, y: tipY }, {
-    x: Math.cos(pushDir) * 0.0004,
-    y: Math.sin(pushDir) * 0.0004,
-  });
-
-  // 给一点初始角速度
-  Body.setAngularVelocity(body, 0.08);
-
-  // 监控连锁
-  let lastCnt = -1;
-  let stallCount = 0;
+function checkDone() {
   const timer = setInterval(() => {
-    let fresh = 0;
-    for (const d of allData) {
-      if (d.fallen) continue;
-      const ad = Math.abs(angDiff(d.body.angle, d.origAngle));
-      if (ad > 0.85) {
-        d.fallen = true;
-        fresh++;
-        sfxChain();
-        if (d.pin) { Composite.remove(world, d.pin); d.pin = null; }
-      }
-    }
-    const totalFallen = allData.filter(d => d.fallen).length;
-
-    if (totalFallen === allData.length) {
+    const anyFalling = dominoes.some(d => d.state === 'falling');
+    if (!anyFalling) {
       clearInterval(timer);
-      sfxDone();
-      setTimeout(() => { mode = 'idle'; updateCounter(); }, 400);
-    } else if (fresh === 0 && totalFallen === lastCnt) {
-      stallCount++;
-      if (stallCount > 6) {
-        clearInterval(timer);
-        for (const d of allData) { if (d.pin) { Composite.remove(world, d.pin); d.pin = null; } }
-        setTimeout(() => { mode = 'idle'; }, 300);
-      }
-    } else {
-      stallCount = 0;
+      falling = false;
+      const fallen = dominoes.filter(d => d.state === 'fallen').length;
+      if (fallen > 0) showMsg(fallen + ' 块倒下 ✓');
     }
-    lastCnt = totalFallen;
-  }, 100);
+  }, 300);
 }
 
-// ─── 撤销 / 清空 ────────────────────────────
-function undo() {
-  if (mode === 'toppling' || segMetas.length === 0) return;
-  const segIdx = segMetas.length - 1;
-  const lastMeta = segMetas.pop();
-  pathPts.splice(lastMeta.startIdx + 1);
-  const toRemove = [];
-  for (let i = allData.length-1; i >= 0; i--) {
-    if (allData[i].segIdx === segIdx) toRemove.push(i);
-  }
-  for (const i of toRemove) {
-    const d = allData[i];
-    if (d.pin) Composite.remove(world, d.pin);
-    Composite.remove(world, d.body);
-    allBodies.splice(allBodies.indexOf(d.body), 1);
-    if (d.pin) allConstraints.splice(allConstraints.indexOf(d.pin), 1);
-    dominoCount--;
-  }
-  allData = allData.filter((_, i) => !toRemove.includes(i));
-  updateCounter();
-  if (pathPts.length === 0) document.getElementById('hint').style.opacity = '1';
+// ─── 音效 ──────────────────────────────────
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function tick(f, d, v, ty='sine') {
+  if (!audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = ty; o.frequency.setValueAtTime(f, t);
+    o.frequency.exponentialRampToValueAtTime(f*0.3, t+d);
+    g.gain.setValueAtTime(Math.min(v,0.1), t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+d);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(t); o.stop(t+d);
+  } catch(e){}
+}
+function playPushSound() { tick(200, 0.15, 0.08, 'triangle'); }
+function playChainSound() { tick(300+Math.random()*600, 0.03, 0.04); }
+function playPlaceSound() { tick(800, 0.04, 0.04); }
+function showMsg(text) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.style.opacity = '1';
+  setTimeout(() => el.style.opacity = '0', 1500);
 }
 
-function resetAll() {
-  if (mode === 'toppling') return;
-  for (const c of allConstraints) Composite.remove(world, c);
-  for (const b of allBodies) Composite.remove(world, b);
-  allBodies = [];
-  allConstraints = [];
-  allData = [];
-  pathPts = [];
-  segMetas = [];
-  dominoCount = 0;
+// ─── 交互：点击放置 / 点击选中 ──────────────
+const raycaster = new THREE.Raycaster();
+const tablePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+let touchStartTime = 0;
+let touchStartPos = { x: 0, y: 0 };
+let touchMoved = false;
+let lastTapTime = 0;
+
+canvas.addEventListener('pointerdown', e => {
+  touchStartTime = Date.now();
+  touchStartPos = { x: e.clientX, y: e.clientY };
+  touchMoved = false;
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (Math.abs(e.clientX - touchStartPos.x) + Math.abs(e.clientY - touchStartPos.y) > 8) {
+    touchMoved = true;
+  }
+});
+
+canvas.addEventListener('pointerup', e => {
+  if (touchMoved) return; // 是拖拽不是点击
+  if (Date.now() - touchStartTime > 300) return; // 长按不算
+
+  initAudio();
+  const mouse = new THREE.Vector2(
+    (e.clientX / window.innerWidth) * 2 - 1,
+    -(e.clientY / window.innerHeight) * 2 + 1
+  );
+  raycaster.setFromCamera(mouse, camera);
+
+  // 先检测是否点到了已有骨牌
+  const meshIntersects = raycaster.intersectObjects(
+    dominoes.map(d => d.mesh),
+    true
+  );
+  if (meshIntersects.length > 0) {
+    // 找到被点击的骨牌
+    let hit = meshIntersects[0].object;
+    while (hit && !dominoes.some(d => d.mesh === hit || d.group.children.includes(hit))) {
+      hit = hit.parent;
+    }
+    const idx = dominoes.findIndex(d => d.mesh === hit || d.group.children.includes(hit));
+    if (idx >= 0 && dominoes[idx].state === 'standing' && !falling) {
+      selectDomino(idx);
+      showMsg('已选中，点「推」开始');
+      return;
+    }
+  }
+
+  // 否则在桌面上放置
+  const planeIntersect = new THREE.Vector3();
+  const ray = raycaster.ray;
+  if (ray.intersectPlane(tablePlane, planeIntersect)) {
+    // 限制在桌面范围内
+    const px = THREE.MathUtils.clamp(planeIntersect.x, -2.8, 2.8);
+    const pz = THREE.MathUtils.clamp(planeIntersect.z, -3.8, 3.8);
+    const d = createDomino(px, pz, curSize);
+
+    // 自动面朝：如果有上一张，面朝上一张
+    if (dominoes.length >= 2) {
+      const prev = dominoes[dominoes.length - 2];
+      const facing = Math.atan2(pz - prev.baseZ, px - prev.baseX);
+      d.facing = facing;
+      d.group.rotation.y = facing;
+    } else {
+      // 默认面朝+Z
+      d.facing = 0;
+      d.group.rotation.y = 0;
+    }
+    playPlaceSound();
+    document.getElementById('hint').style.opacity = '0';
+  }
+});
+
+// ─── 相机：单指旋转 ─────────────────────────
+let camTheta = 0, camPhi = Math.PI/5;
+let camDist = 7;
+let camTarget = new THREE.Vector3(0, 0.3, 0);
+let orbitDragging = false;
+let orbitPrev = { x: 0, y: 0 };
+let pinchStartDist = 0;
+
+function updateCamera() {
+  camera.position.set(
+    camTarget.x + camDist * Math.sin(camPhi) * Math.sin(camTheta),
+    camTarget.y + camDist * Math.cos(camPhi),
+    camTarget.z + camDist * Math.sin(camPhi) * Math.cos(camTheta)
+  );
+  camera.lookAt(camTarget);
+}
+updateCamera();
+
+canvas.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'touch' && (e.isPrimary || true)) {
+    // for orbit, handled in move
+  }
+});
+
+// 使用单独的touch handler处理双指
+let touches = new Map();
+canvas.addEventListener('touchstart', e => {
+  for (const t of e.changedTouches) touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+  if (touches.size === 2) {
+    orbitDragging = true;
+    const pts = [...touches.values()];
+    pinchStartDist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (touches.has(t.identifier)) {
+      const old = touches.get(t.identifier);
+      if (touches.size === 2 && orbitDragging) {
+        // 双指：旋转+缩放
+        touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+        const pts = [...touches.values()];
+        const newDist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+        if (pinchStartDist > 0) {
+          camDist *= pinchStartDist / newDist;
+          camDist = THREE.MathUtils.clamp(camDist, 3, 15);
+          pinchStartDist = newDist;
+        }
+        // 旋转
+        if (old) {
+          camTheta -= (t.clientX - old.x) * 0.005;
+          camPhi -= (t.clientY - old.y) * 0.005;
+          camPhi = THREE.MathUtils.clamp(camPhi, 0.2, Math.PI/2 - 0.1);
+        }
+        updateCamera();
+        return;
+      }
+      touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+    }
+  }
+  // 单指旋转
+  if (touches.size === 1 && !touchMoved) {
+    const t = e.changedTouches[0];
+    const old = touches.get(t.identifier);
+    if (old) {
+      camTheta -= (t.clientX - old.x) * 0.008;
+      camPhi -= (t.clientY - old.y) * 0.008;
+      camPhi = THREE.MathUtils.clamp(camPhi, 0.2, Math.PI/2 - 0.1);
+      updateCamera();
+    }
+    touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  for (const t of e.changedTouches) touches.delete(t.identifier);
+  if (touches.size < 2) { orbitDragging = false; pinchStartDist = 0; }
+});
+
+// 鼠标滚轮缩放
+canvas.addEventListener('wheel', e => {
+  camDist *= 1 + e.deltaY * 0.001;
+  camDist = THREE.MathUtils.clamp(camDist, 3, 15);
+  updateCamera();
+});
+
+// ─── 参考线：显示骨牌间距 ──────────────────拉
+let ghostLine = null;
+function updateGhost() {
+  if (ghostLine) { scene.remove(ghostLine); ghostLine = null; }
+  if (!showGhost || dominoes.length < 2) return;
+
+  const last = dominoes[dominoes.length - 1];
+  const prev = dominoes[dominoes.length - 2];
+  const s = SIZES[last.size];
+  const dist = Math.hypot(last.baseX - prev.baseX, last.baseZ - prev.baseZ);
+  const optimal = s.h * 0.85;
+
+  const midX = (last.baseX + prev.baseX) / 2;
+  const midZ = (last.baseZ + prev.baseZ) / 2;
+  const dx = last.baseX - prev.baseX;
+  const dz = last.baseZ - prev.baseZ;
+
+  // 颜色：绿色=完美距离，黄色=偏近，红色=太远
+  const ratio = dist / optimal;
+  let lineColor;
+  if (ratio < 0.7) lineColor = 0xffaa00; // 太近
+  else if (ratio > 1.05) lineColor = 0xff3333; // 太远，可能断链
+  else lineColor = 0x33ff66; // 完美
+
+  const lineGeo = new THREE.BoxGeometry(dist, 0.01, 0.03);
+  const lineMat = new THREE.MeshBasicMaterial({ color: lineColor, transparent: true, opacity: 0.7 });
+  ghostLine = new THREE.Mesh(lineGeo, lineMat);
+  ghostLine.position.set(midX, 0.09, midZ);
+  ghostLine.rotation.y = Math.atan2(dz, dx);
+  scene.add(ghostLine);
+}
+function toggleGhost() { showGhost = !showGhost; if (!showGhost && ghostLine) { scene.remove(ghostLine); ghostLine = null; } }
+
+// ─── UI ─────────────────────────────────────
+function setSize(key, btn) {
+  curSize = key;
+  document.querySelectorAll('#ui-top button.sel').forEach(b => b.classList.remove('sel'));
+  if (btn) btn.classList.add('sel');
+}
+
+function updateCounter() {
+  document.getElementById('counter').textContent = dominoes.length + ' 块';
+  if (dominoes.length > 0) document.getElementById('hint').style.opacity = '0';
+  updateGhost();
+}
+
+function clearAll() {
+  if (falling) return;
+  for (const d of dominoes) scene.remove(d.group);
+  dominoes = [];
+  selectedIdx = -1;
+  if (ghostLine) { scene.remove(ghostLine); ghostLine = null; }
   updateCounter();
   document.getElementById('hint').style.opacity = '1';
 }
 
-function setPreset(n, btn) {
-  presetN = n;
-  document.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
+// ─── 响应式 ─────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ─── 主循环 ─────────────────────────────────
+let lastTime = performance.now();
+function loop(time) {
+  requestAnimationFrame(loop);
+  const dt = (time - lastTime) / 1000;
+  lastTime = time;
+  if (dt > 0 && dt < 0.2) updatePhysics(dt);
+  renderer.render(scene, camera);
 }
-
-function updateCounter() {
-  document.getElementById('counter').textContent = dominoCount + ' / ' + MAX_N;
-  if (dominoCount > 0) document.getElementById('hint').style.opacity = '0';
-}
-
-// ─── 触摸 / 鼠标画线 ────────────────────────
-function evPos(e) {
-  const t = e.touches ? e.touches[0] : e;
-  return { x: t.clientX, y: t.clientY };
-}
-function beginDraw(e) {
-  if (mode !== 'idle') return;
-  e.preventDefault();
-  initAudio();
-  let pos = evPos(e);
-  if (pathPts.length > 0) {
-    const last = pathPts[pathPts.length-1];
-    if (dist(pos, last) < 30) pos = last;
-  }
-  drawing = true;
-  drawPts = [pos];
-}
-function moveDraw(e) {
-  if (!drawing || mode !== 'idle') return;
-  e.preventDefault();
-  drawPts.push(evPos(e));
-}
-function endDraw(e) {
-  if (!drawing || mode !== 'idle') return;
-  e.preventDefault();
-  drawing = false;
-  if (drawPts.length < 2) return;
-  const simp = [drawPts[0]];
-  for (let i = 1; i < drawPts.length; i++) {
-    if (dist(drawPts[i], simp[simp.length-1]) > 4) simp.push(drawPts[i]);
-  }
-  if (simp.length < 2) return;
-
-  const isNew = pathPts.length === 0;
-  let sIdx;
-  if (isNew) { pathPts.push(simp[0]); sIdx = 0; }
-  else {
-    const last = pathPts[pathPts.length-1];
-    if (dist(simp[0], last) < 8) sIdx = pathPts.length-1;
-    else { simp.unshift(last); sIdx = pathPts.length; }
-  }
-  for (let i = 1; i < simp.length; i++) pathPts.push(simp[i]);
-  const eIdx = pathPts.length-1;
-  const segI = segMetas.length;
-  segMetas.push({ startIdx: sIdx, endIdx: eIdx });
-  const positions = genPositions(sIdx, eIdx, presetN);
-  if (positions.length > 0) placeSegment(positions, segI);
-  drawPts = [];
-}
-
-canvas.addEventListener('touchstart', beginDraw, { passive: false });
-canvas.addEventListener('touchmove',  moveDraw,  { passive: false });
-canvas.addEventListener('touchend',   endDraw,   { passive: false });
-canvas.addEventListener('mousedown',  beginDraw);
-canvas.addEventListener('mousemove',  moveDraw);
-canvas.addEventListener('mouseup',    endDraw);
-
-// ─── 渲染 ───────────────────────────────────
-function render() {
-  const w = W(), h = H();
-  ctx.clearRect(0, 0, w, h);
-
-  // 毛毡桌面
-  ctx.fillStyle = '#1b5e3b';
-  ctx.fillRect(0, 0, w, h);
-  for (let i = 0; i < 100; i++) {
-    ctx.fillStyle = `rgba(0,0,0,${0.02 + Math.random()*0.03})`;
-    ctx.fillRect(Math.random()*w, Math.random()*h, 3, 3);
-  }
-
-  // 路径线
-  for (const m of segMetas) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 8]);
-    ctx.beginPath();
-    ctx.moveTo(pathPts[m.startIdx].x, pathPts[m.startIdx].y);
-    for (let i = m.startIdx+1; i <= m.endIdx; i++) ctx.lineTo(pathPts[i].x, pathPts[i].y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  // 画线预览
-  if (drawing && drawPts.length > 1) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 2.5;
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    ctx.moveTo(drawPts[0].x, drawPts[0].y);
-    for (let i = 1; i < drawPts.length; i++) ctx.lineTo(drawPts[i].x, drawPts[i].y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  // 骨牌渲染
-  for (const d of allData) {
-    const b = d.body;
-    ctx.save();
-    ctx.translate(b.position.x, b.position.y);
-    ctx.rotate(b.angle);
-
-    if (d.fallen) {
-      ctx.fillStyle = '#2a3d2e';
-      ctx.shadowColor = 'rgba(0,0,0,.3)';
-      ctx.shadowBlur = 4;
-      ctx.fillRect(-D_H/2, -D_W/2, D_H, D_W);
-      ctx.shadowBlur = 0;
-    } else {
-      // 站立的骨牌（象牙白 + 渐变模拟立体感）
-      const grad = ctx.createLinearGradient(-D_W/2, 0, D_W/2, 0);
-      grad.addColorStop(0, '#e8e0d5');
-      grad.addColorStop(0.4, '#faf6ed');
-      grad.addColorStop(1, '#d4ccc0');
-      ctx.fillStyle = grad;
-      ctx.shadowColor = 'rgba(0,0,0,.15)';
-      ctx.shadowBlur = 3;
-      ctx.shadowOffsetX = 1;
-      ctx.shadowOffsetY = 1;
-      ctx.fillRect(-D_W/2, -D_H/2, D_W, D_H);
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
-
-      // 圆点
-      ctx.fillStyle = '#1a1a1a';
-      ctx.beginPath();
-      ctx.arc(0, -D_H/2 + 7.5, 2.5, 0, Math.PI*2);
-      ctx.fill();
-      // 边框
-      ctx.strokeStyle = 'rgba(170,160,145,.4)';
-      ctx.lineWidth = 0.4;
-      ctx.strokeRect(-D_W/2, -D_H/2, D_W, D_H);
-    }
-
-    ctx.restore();
-  }
-
-  requestAnimationFrame(render);
-}
-
-// ─── 物理循环 ───────────────────────────────
-function update() {
-  Engine.update(engine, 1000/60);
-  requestAnimationFrame(update);
-}
-
-render();
-update();
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
